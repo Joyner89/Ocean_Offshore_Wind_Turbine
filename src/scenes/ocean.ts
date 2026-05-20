@@ -9,6 +9,7 @@ import { PBRCustomMaterial } from "@babylonjs/materials";
 import noiseEXR from "../assets/ocean/00_noise0.exr";
 import babylon_buoy from "../assets/ocean/babylonBuoy.glb";
 import buoy from "../assets/ocean/buoy.glb";
+import fengJi from "../assets/ocean/FengJi.glb";
 import fisher_boat from "../assets/ocean/fisher_boat.glb";
 import { CreateSceneClass } from "../createScene";
 import { Buoyancy } from "./buoyancy";
@@ -24,7 +25,8 @@ import { WavesSettings } from "./wavesSettings";
 
 const showBuoy = false;
 const showFisherBoat = false;
-const showBabylonBuoy = true;
+const showBabylonBuoy = false;
+const showFengJi = true;
 
 export class Ocean implements CreateSceneClass {
 
@@ -51,6 +53,7 @@ export class Ocean implements CreateSceneClass {
     private _shadowGeneratorBuoy: BABYLON.ShadowGenerator;
     private _glowLayer: BABYLON.GlowLayer;
     private _forceUpdateGlowIntensity: boolean;
+    private _fengJiBlade: BABYLON.Nullable<BABYLON.TransformNode>;
 
     constructor() {
         this._engine = null as any;
@@ -74,6 +77,7 @@ export class Ocean implements CreateSceneClass {
         this._shadowGeneratorBuoy = null as any;
         this._glowLayer = null as any;
         this._forceUpdateGlowIntensity = true;
+        this._fengJiBlade = null;
 
         this._size = 0;
         this._wavesSettings = new WavesSettings();
@@ -93,7 +97,7 @@ export class Ocean implements CreateSceneClass {
         this._engine = engine;
         this._scene = scene;
 
-        this._camera = new BABYLON.FreeCamera("mainCamera", new BABYLON.Vector3(-17.3, 5, -9), scene);
+        this._camera = new BABYLON.ArcRotateCamera("camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
         this._camera.rotation.set(0.21402315044176745, 1.5974857677541419, 0);
         this._camera.minZ = 1;
         this._camera.maxZ = 100000;
@@ -110,6 +114,7 @@ export class Ocean implements CreateSceneClass {
         this._rttDebug.show(false);
 
         scene.environmentIntensity = 1;
+        this._setupImageProcessing();
 
         scene.activeCameras = [this._camera, this._rttDebug.camera];
 
@@ -193,6 +198,7 @@ export class Ocean implements CreateSceneClass {
                 this._light.position = this._light.position.clone().normalize().scaleInPlace(30);
             }
             this._oceanGeometry.update();
+            this._updateFengJiBlade();
             this._wavesGenerator!.update();
             this._buoyancy.setWaterHeightMap(this._wavesGenerator!.waterHeightMap, this._wavesGenerator!.waterHeightMapScale);
             this._buoyancy.update();
@@ -243,6 +249,26 @@ export class Ocean implements CreateSceneClass {
         panel.addControl(info); 
 
         return false;
+    }
+
+    private _setupImageProcessing(): void {
+        const imageProcessing = this._scene.imageProcessingConfiguration;
+
+        // 色调映射会把 HDR 高亮压回屏幕可显示范围，减少天空和海面高光过曝。
+        imageProcessing.toneMappingEnabled = true;
+        // ACES 是游戏和影视里常用的色调映射曲线，观感会比标准曲线更有层次。
+        imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+
+        // 曝光控制整体亮度：数值越大越亮，建议微调范围 0.8 - 1.3。
+        imageProcessing.exposure = 1.0;
+        // 对比度控制明暗反差：数值越大层次越强，过高会丢失暗部细节。
+        imageProcessing.contrast = 1.15;
+
+        // 抖动可以减少天空、雾面和海面渐变中的色带，不会开启额外的重型后处理。
+        imageProcessing.ditheringEnabled = true;
+
+        // 如果以后需要 LUT 调色，把这里改成 true，并给 colorGradingTexture 指定 LUT 贴图。
+        imageProcessing.colorGradingEnabled = false;
     }
 
     private async _loadMeshes() {
@@ -338,6 +364,57 @@ export class Ocean implements CreateSceneClass {
             sp3.position.y = 1 / scale;
             sp3.position.z = -1.5 / scale;*/
         }
+
+        // FengJi wind turbine
+        if (showFengJi) {
+            await this._loadFengJi();
+        }
+    }
+
+    private async _loadFengJi(): Promise<void> {
+        const meshesBeforeLoad = new Set(this._scene.meshes);
+        const rootNodesBeforeLoad = new Set(this._scene.rootNodes);
+
+        await BABYLON.SceneLoader.AppendAsync("", fengJi, this._scene, undefined, ".glb");
+
+        const fengJiRoot = new BABYLON.TransformNode("fengJiRoot", this._scene);
+        fengJiRoot.position.set(0, 0, -8);
+        fengJiRoot.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0, Math.PI, 0);
+        fengJiRoot.scaling.setAll(1);
+
+        // 将导入模型的根节点统一挂到 fengJiRoot 下，后续调整位置、缩放、旋转只需要改这里。
+        this._scene.rootNodes
+            .filter((node) => !rootNodesBeforeLoad.has(node) && node !== fengJiRoot)
+            .forEach((node) => {
+                node.parent = fengJiRoot;
+            });
+
+        const fengJiMeshes = this._scene.meshes.filter((mesh) => !meshesBeforeLoad.has(mesh));
+
+        fengJiMeshes.forEach((mesh) => {
+            mesh.receiveShadows = true;
+
+            if (mesh.material) {
+                mesh.material.backFaceCulling = false;
+            }
+
+            this._shadowGenerator.addShadowCaster(mesh);
+            this._depthRenderer.getDepthMap().renderList!.push(mesh);
+        });
+
+        this._fengJiBlade = this._scene.getTransformNodeByName("YePian") ?? this._scene.getMeshByName("YePian");
+    }
+
+    private _updateFengJiBlade(): void {
+        if (!this._fengJiBlade) {
+            return;
+        }
+
+        const deltaTime = this._engine.getDeltaTime() / 1000;
+        const rotationSpeed = Math.PI * 2;
+
+        // 叶片沿本地 X 轴持续旋转，使用 deltaTime 避免不同帧率下转速不一致。
+        this._fengJiBlade.rotate(BABYLON.Axis.X, rotationSpeed * deltaTime, BABYLON.Space.LOCAL);
     }
 
     private _createGlowLayer(): void {
