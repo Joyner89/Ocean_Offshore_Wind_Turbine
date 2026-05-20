@@ -32,7 +32,7 @@ export class Ocean implements CreateSceneClass {
 
     private _engine: BABYLON.Engine;
     private _scene: BABYLON.Scene;
-    private _camera: BABYLON.TargetCamera;
+    private _camera: BABYLON.ArcRotateCamera;
     private _rttDebug: RTTDebug;
     private _light: BABYLON.DirectionalLight;
     private _depthRenderer: BABYLON.DepthRenderer;
@@ -53,6 +53,7 @@ export class Ocean implements CreateSceneClass {
     private _shadowGeneratorBuoy: BABYLON.ShadowGenerator;
     private _glowLayer: BABYLON.GlowLayer;
     private _forceUpdateGlowIntensity: boolean;
+    private _fengJiRoot: BABYLON.Nullable<BABYLON.TransformNode>;
     private _fengJiBlade: BABYLON.Nullable<BABYLON.TransformNode>;
 
     constructor() {
@@ -77,6 +78,7 @@ export class Ocean implements CreateSceneClass {
         this._shadowGeneratorBuoy = null as any;
         this._glowLayer = null as any;
         this._forceUpdateGlowIntensity = true;
+        this._fengJiRoot = null;
         this._fengJiBlade = null;
 
         this._size = 0;
@@ -97,16 +99,11 @@ export class Ocean implements CreateSceneClass {
         this._engine = engine;
         this._scene = scene;
 
-        this._camera = new BABYLON.ArcRotateCamera("camera", 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
-        this._camera.rotation.set(0.21402315044176745, 1.5974857677541419, 0);
-        this._camera.minZ = 1;
-        this._camera.maxZ = 100000;
+        this._camera = this._createCamera(scene, canvas);
 
         if (!this._checkSupport()) {
             return scene;
         }
-
-        this._setCameraKeys();
 
         //await OceanGUI.LoadDAT(); 
 
@@ -117,8 +114,6 @@ export class Ocean implements CreateSceneClass {
         this._setupImageProcessing();
 
         scene.activeCameras = [this._camera, this._rttDebug.camera];
-
-        this._camera.attachControl(canvas, true);
 
         const cameraUpdate = this._camera.update.bind(this._camera);
         this._camera.update = function() {
@@ -167,12 +162,12 @@ export class Ocean implements CreateSceneClass {
             switch (kbInfo.type) {
                 case BABYLON.KeyboardEventTypes.KEYDOWN:
                     if (kbInfo.event.key === "Shift") {
-                        this._camera.speed = 10;
+                        this._camera.wheelDeltaPercentage = 0.03;
                     }
                     break;
                 case BABYLON.KeyboardEventTypes.KEYUP:
                     if (kbInfo.event.key === "Shift") {
-                        this._camera.speed = 2;
+                        this._camera.wheelDeltaPercentage = 0.01;
                     }
                     break;
             }
@@ -198,6 +193,7 @@ export class Ocean implements CreateSceneClass {
                 this._light.position = this._light.position.clone().normalize().scaleInPlace(30);
             }
             this._oceanGeometry.update();
+            this._updateCameraTarget();
             this._updateFengJiBlade();
             this._wavesGenerator!.update();
             this._buoyancy.setWaterHeightMap(this._wavesGenerator!.waterHeightMap, this._wavesGenerator!.waterHeightMapScale);
@@ -209,21 +205,35 @@ export class Ocean implements CreateSceneClass {
         });
     }
 
-    private _setCameraKeys(): void {
-        const kbInputs = this._camera.inputs.attached.keyboard as BABYLON.FreeCameraKeyboardMoveInput;
-        if (this._useZQSD) {
-            kbInputs.keysDown = [40, 83];
-            kbInputs.keysLeft = [37, 81];
-            kbInputs.keysRight = [39, 68];
-            kbInputs.keysUp = [38, 90];
-        } else {
-            kbInputs.keysDown = [40, 83];
-            kbInputs.keysLeft = [37, 65];
-            kbInputs.keysRight = [39, 68];
-            kbInputs.keysUp = [38, 87];
-        }
-        kbInputs.keysDownward = [34, 32];
-        kbInputs.keysUpward = [33, 69];
+    private _createCamera(scene: BABYLON.Scene, canvas: HTMLCanvasElement): BABYLON.ArcRotateCamera {
+        const camera = new BABYLON.ArcRotateCamera(
+            "camera",
+            BABYLON.Tools.ToRadians(180),
+            BABYLON.Tools.ToRadians(78),
+            28,
+            new BABYLON.Vector3(0, 6, -8),
+            scene
+        );
+
+        camera.minZ = 1;
+        camera.maxZ = 100000;
+
+        // 相机永远看向 target。这里先给默认目标点，FengJi 模型加载完成后会自动切到模型中心。
+        camera.setTarget(new BABYLON.Vector3(0, 6, -8));
+
+        // 左键拖拽围绕目标点旋转，滚轮缩放；关闭键盘平移，避免相机目标点被键盘输入带偏。
+        camera.attachControl(canvas, true);
+        camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
+
+        // 限制俯仰角，避免镜头翻到海面下或越过顶部后反向。
+        camera.lowerBetaLimit = BABYLON.Tools.ToRadians(15);
+        camera.upperBetaLimit = BABYLON.Tools.ToRadians(88);
+        camera.lowerRadiusLimit = 20;
+        camera.upperRadiusLimit = 40;
+        camera.wheelDeltaPercentage = 0.01;
+        camera.panningSensibility = 0;
+
+        return camera;
     }
 
     private _checkSupport(): boolean {
@@ -381,6 +391,7 @@ export class Ocean implements CreateSceneClass {
         fengJiRoot.position.set(0, 0, -8);
         fengJiRoot.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0, Math.PI, 0);
         fengJiRoot.scaling.setAll(1);
+        this._fengJiRoot = fengJiRoot;
 
         // 将导入模型的根节点统一挂到 fengJiRoot 下，后续调整位置、缩放、旋转只需要改这里。
         this._scene.rootNodes
@@ -403,6 +414,20 @@ export class Ocean implements CreateSceneClass {
         });
 
         this._fengJiBlade = this._scene.getTransformNodeByName("YePian") ?? this._scene.getMeshByName("YePian");
+        this._updateCameraTarget();
+    }
+
+    private _updateCameraTarget(): void {
+        if (!this._fengJiRoot) {
+            return;
+        }
+
+        const target = BABYLON.TmpVectors.Vector3[4];
+
+        // 模型根节点在海面高度，镜头目标点抬到风机主体附近，这样左键旋转时始终围绕 FengJi 观察。
+        target.copyFrom(this._fengJiRoot.getAbsolutePosition());
+        target.y += 6;
+        this._camera.setTarget(target);
     }
 
     private _updateFengJiBlade(): void {
@@ -577,7 +602,6 @@ export class Ocean implements CreateSceneClass {
                 break;
             case "useZQSD":
                 this._useZQSD = !!value;
-                this._setCameraKeys();
                 break;
             case "buoy_enabled":
                 this._buoyancy.enabled = !!value;
