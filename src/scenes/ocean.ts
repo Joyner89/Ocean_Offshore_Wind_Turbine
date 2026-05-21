@@ -439,7 +439,7 @@ export class Ocean implements CreateSceneClass {
         const rotationSpeed = Math.PI * 2;
 
         // 叶片沿本地 X 轴持续旋转，使用 deltaTime 避免不同帧率下转速不一致。
-        this._fengJiBlade.rotate(BABYLON.Axis.X, rotationSpeed * deltaTime, BABYLON.Space.LOCAL);
+        this._fengJiBlade.rotate(BABYLON.Axis.X, -rotationSpeed * deltaTime, BABYLON.Space.LOCAL);
     }
 
     private _createGlowLayer(): void {
