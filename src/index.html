@@ -1,14 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
     <head>
         <meta charset="utf-8" />
-        <title>Popov's Paradise</title>
+        <title>WIND-TWIN | 智慧海上风电数字孪生系统</title>
         <meta
             name="description"
-            content="A sample project based on Babylon.js, written in typescript, built with webpack"
+            content="Bilateral digital twin telemetry dashboard for offshore wind turbine visualization, based on WebGPU and Babylon.js."
         />
-        <meta name="author" content="Captain Popov" />
+        <meta name="author" content="Antigravity Team" />
+        
+        <!-- 引入 Google Fonts 提升排版档次 -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+        
         <style>
+            /* 1. 核心重置与全局布局 */
+            * {
+                box-sizing: border-box;
+                user-select: none;
+            }
+            
             html,
             body {
                 overflow: hidden;
@@ -16,17 +28,1141 @@
                 height: 100%;
                 margin: 0;
                 padding: 0;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background-color: #03060f; /* 经典深邃太空黑 */
+                color: #e2e8f0;
             }
 
             #renderCanvas {
                 width: 100%;
                 height: 100%;
                 touch-action: none;
+                display: block;
+                position: absolute;
+                top: 0;
+                left: 0;
+                z-index: 1;
+            }
+
+            /* 2. 玻璃态（Glassmorphism）暗黑霓虹科技感核心配置 */
+            :root {
+                --glass-bg: rgba(6, 11, 25, 0.65);
+                --glass-border: rgba(255, 255, 255, 0.08);
+                --accent-blue: #00f2fe; /* 荧光青蓝 */
+                --accent-green: #00f5a0; /* 荧光亮绿 */
+                --accent-red: #ff3366; /* 信标红 */
+                --accent-yellow: #ffb800;
+                --text-light: #e2e8f0;
+                --text-muted: #94a3b8;
+                --neon-shadow-blue: 0 0 15px rgba(0, 242, 254, 0.35);
+                --neon-shadow-red: 0 0 12px rgba(255, 51, 102, 0.6);
+            }
+
+            .twin-panel {
+                position: absolute;
+                z-index: 10;
+                background: var(--glass-bg);
+                border: 1px solid var(--glass-border);
+                backdrop-filter: blur(16px) saturate(180%);
+                -webkit-backdrop-filter: blur(16px) saturate(180%);
+                border-radius: 12px;
+                box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+                transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+
+            .twin-panel:hover {
+                border-color: rgba(0, 242, 254, 0.25);
+                box-shadow: 0 8px 32px 0 rgba(0, 242, 254, 0.05);
+            }
+
+            /* 3. 顶部 Header-Bar */
+            .header-bar {
+                top: 20px;
+                left: 20px;
+                right: 20px;
+                height: 64px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 24px;
+                border-bottom: 2px solid rgba(0, 242, 254, 0.2);
+            }
+
+            .header-title-container {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .header-logo {
+                width: 22px;
+                height: 22px;
+                background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+                border-radius: 5px;
+                position: relative;
+                animation: pulse 2.5s infinite alternate;
+            }
+
+            .header-logo::after {
+                content: '';
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                border: 2px solid var(--accent-blue);
+                border-radius: 5px;
+                animation: ripple 2s infinite linear;
+            }
+
+            @keyframes pulse {
+                0% { transform: scale(0.92); opacity: 0.8; }
+                100% { transform: scale(1.08); opacity: 1; }
+            }
+
+            @keyframes ripple {
+                0% { transform: scale(1); opacity: 1; }
+                100% { transform: scale(1.8); opacity: 0; }
+            }
+
+            .header-title {
+                font-size: 16px;
+                font-weight: 600;
+                letter-spacing: 2px;
+                background: linear-gradient(to right, #ffffff, #94a3b8);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            }
+
+            .header-subtitle {
+                font-size: 9px;
+                color: var(--accent-blue);
+                letter-spacing: 3px;
+                text-transform: uppercase;
+                margin-top: 1px;
+                font-weight: 600;
+            }
+
+            .header-right {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+            }
+
+            .status-indicator {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 11px;
+                background: rgba(255, 255, 255, 0.03);
+                padding: 6px 14px;
+                border-radius: 30px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }
+
+            .status-dot {
+                width: 7px;
+                height: 7px;
+                background-color: var(--accent-green);
+                border-radius: 50%;
+                box-shadow: 0 0 10px var(--accent-green);
+            }
+
+            .system-time {
+                font-family: 'Orbitron', monospace;
+                font-size: 14px;
+                color: var(--accent-blue);
+                letter-spacing: 1px;
+                text-shadow: var(--neon-shadow-blue);
+            }
+
+            /* 4. 左右对称双侧面板布局 */
+            .telemetry-side-panel {
+                top: 104px;
+                bottom: 120px; /* 为底部相机栏留出空间 */
+                width: 330px;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            /* 左侧：风机-环境数据 */
+            .telemetry-left {
+                left: 20px;
+            }
+
+            /* 右侧：风机-姿态数据 */
+            .telemetry-right {
+                right: 20px;
+            }
+
+            /* 面板标头与装饰 */
+            .panel-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--text-light);
+                letter-spacing: 1.5px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                padding-bottom: 10px;
+                margin-bottom: 6px;
+            }
+
+            .panel-header-icon {
+                width: 14px;
+                height: 14px;
+                color: var(--accent-blue);
+            }
+
+            /* 遥测数据格子组 */
+            .telemetry-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }
+
+            /* 数据展示卡片（深色微晶体发光层叠） */
+            .data-card {
+                background: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.04);
+                border-radius: 8px;
+                padding: 12px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                position: relative;
+                transition: all 0.3s ease;
+            }
+
+            .data-card::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 25%;
+                width: 2px;
+                height: 50%;
+                background: var(--accent-blue);
+                border-radius: 2px;
+                opacity: 0.5;
+            }
+
+            .data-card:hover {
+                background: rgba(255, 255, 255, 0.06);
+                border-color: rgba(0, 242, 254, 0.25);
+                box-shadow: 0 4px 12px rgba(0, 242, 254, 0.05);
+            }
+
+            .data-card-icon {
+                width: 24px;
+                height: 24px;
+                color: var(--accent-blue);
+                flex-shrink: 0;
+                filter: drop-shadow(0 0 4px rgba(0, 242, 254, 0.2));
+            }
+
+            .data-card-content {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .data-card-label {
+                font-size: 10px;
+                color: var(--text-muted);
+                margin-bottom: 2px;
+                font-weight: 500;
+            }
+
+            .data-card-value-box {
+                display: flex;
+                align-items: baseline;
+                gap: 4px;
+            }
+
+            .data-card-value {
+                font-family: 'Orbitron', monospace;
+                font-size: 16px;
+                font-weight: 700;
+                color: var(--text-light);
+                text-shadow: 0 0 10px rgba(255,255,255,0.08);
+            }
+
+            .data-card-value.highlight-blue {
+                color: var(--accent-blue);
+                text-shadow: var(--neon-shadow-blue);
+            }
+            
+            .data-card-value.highlight-green {
+                color: var(--accent-green);
+                text-shadow: 0 0 15px rgba(0, 245, 160, 0.35);
+            }
+
+            .data-card-unit {
+                font-size: 10px;
+                color: #64748b;
+                font-weight: 600;
+            }
+
+            /* 双行大尺寸坐标展示（经纬度专用） */
+            .gps-card {
+                grid-column: span 2;
+                background: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.04);
+                border-radius: 8px;
+                padding: 10px 14px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                transition: all 0.3s ease;
+            }
+
+            .gps-card:hover {
+                background: rgba(255, 255, 255, 0.06);
+                border-color: rgba(0, 242, 254, 0.25);
+                box-shadow: 0 4px 12px rgba(0, 242, 254, 0.05);
+            }
+
+            .gps-card .gps-content {
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .gps-card .gps-value {
+                font-family: 'Orbitron', monospace;
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--text-light);
+                letter-spacing: 0.5px;
+                margin-top: 1px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /* 5. 左侧底部：三舱悬浮“冰透试管”压载水位计 */
+            .tanks-section {
+                margin-top: auto;
+                background: rgba(255, 255, 255, 0.01);
+                border: 1px solid rgba(255, 255, 255, 0.03);
+                border-radius: 8px;
+                padding: 14px 10px;
+                position: relative;
+            }
+
+            .tanks-title {
+                font-size: 11px;
+                color: var(--text-muted);
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                margin-bottom: 12px;
+                text-align: center;
+                font-weight: 600;
+            }
+
+            .tanks-flex-container {
+                display: flex;
+                justify-content: space-around;
+                align-items: flex-end;
+                height: 110px;
+            }
+
+            .tank-column {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                width: 60px;
+                height: 100%;
+            }
+
+            /* 🧪 立式暗色冰透试管 */
+            .tank-track {
+                width: 14px;
+                height: 80px;
+                background: rgba(0, 0, 0, 0.4); /* 深黑色半透明背景 */
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 10px; /* 试管圆底 */
+                position: relative;
+                overflow: visible; /* 允许红色极光信标圆点向外发光溢出 */
+            }
+
+            /* 填充的水位 (霓虹冰蓝发光液柱) */
+            .tank-fill {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 45%; /* 由 JS 动态控制 */
+                background: linear-gradient(to top, rgba(0, 242, 254, 0.2), rgba(0, 242, 254, 0.75));
+                border-top: 1.5px solid var(--accent-blue);
+                border-radius: 0 0 10px 10px;
+                box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+                transition: height 0.1s linear;
+            }
+
+            /* 🔴 水平液位指示器：亮红色呼吸发光的“极光信标圆点” */
+            .tank-indicator {
+                position: absolute;
+                bottom: 45%; /* 由 JS 同步控制 */
+                left: 50%;
+                transform: translate(-50%, 50%); /* 水平垂直圆心对齐 */
+                width: 8px;
+                height: 8px;
+                background-color: var(--accent-red);
+                border-radius: 50%;
+                box-shadow: 0 0 8px var(--accent-red), 0 0 15px var(--accent-red);
+                z-index: 5;
+                transition: bottom 0.1s linear;
+                animation: beacon-blink 1.2s infinite ease-in-out;
+            }
+
+            /* 极光信标点呼吸起伏微动效 */
+            @keyframes beacon-blink {
+                0%, 100% { transform: translate(-50%, 50%) scale(0.85); opacity: 0.75; box-shadow: 0 0 8px var(--accent-red); }
+                50% { transform: translate(-50%, 50%) scale(1.3); opacity: 1; box-shadow: 0 0 16px var(--accent-red), 0 0 24px var(--accent-red); }
+            }
+
+            .tank-label {
+                font-size: 10px;
+                color: var(--text-muted);
+                margin-top: 8px;
+                text-align: center;
+                font-weight: 600;
+            }
+
+            .tank-value-text {
+                font-family: 'Orbitron', monospace;
+                font-size: 9px;
+                color: var(--accent-blue);
+                margin-top: 2px;
+                font-weight: 600;
+            }
+
+            /* 6. 底部简洁机位控制面板 */
+            .camera-dock {
+                bottom: 20px;
+                right: 20px;
+                height: 60px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 0 18px;
+            }
+
+            .dock-label {
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: var(--text-muted);
+            }
+
+            .neon-btn {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                color: #e2e8f0;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+
+            .neon-btn:hover {
+                background: rgba(0, 242, 254, 0.1);
+                border-color: var(--accent-blue);
+                color: #ffffff;
+                box-shadow: var(--neon-shadow-blue);
+                transform: translateY(-2px);
+            }
+
+            .neon-btn.active {
+                background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(0, 245, 160, 0.2));
+                border-color: var(--accent-blue);
+                color: #ffffff;
+                box-shadow: var(--neon-shadow-blue);
+            }
+
+            /* 按钮隐去与展开系统 */
+            .hud-toggle-btn {
+                position: absolute;
+                bottom: 20px;
+                left: 20px;
+                z-index: 100;
+                width: 38px;
+                height: 38px;
+                border-radius: 50%;
+                background: var(--glass-bg);
+                border: 1px solid var(--glass-border);
+                backdrop-filter: blur(12px);
+                color: #94a3b8;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+
+            .hud-toggle-btn:hover {
+                color: #ffffff;
+                border-color: var(--accent-blue);
+                box-shadow: var(--neon-shadow-blue);
+            }
+
+            /* 折叠动画 */
+            body.hud-hidden .twin-panel {
+                opacity: 0;
+                pointer-events: none;
+            }
+            body.hud-hidden .telemetry-left {
+                transform: translateX(-40px);
+            }
+            body.hud-hidden .telemetry-right {
+                transform: translateX(40px);
+            }
+            body.hud-hidden .header-bar {
+                transform: translateY(-30px);
+            }
+            body.hud-hidden .camera-dock {
+                transform: translateY(30px);
+            }
+
+            /* 开场加载遮罩 */
+            #loader-mask {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: #03060f; /* 极夜太空深黑 */
+                z-index: 1000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 20px;
+                transition: opacity 0.6s ease;
+            }
+
+            .loader-spinner {
+                width: 44px;
+                height: 44px;
+                border: 3px solid rgba(0, 242, 254, 0.1);
+                border-top-color: var(--accent-blue);
+                border-radius: 50%;
+                animation: spin 1s infinite linear;
+                box-shadow: var(--neon-shadow-blue);
+            }
+
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+
+            .loader-text {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 13px;
+                letter-spacing: 3px;
+                color: var(--accent-blue);
+                font-weight: 600;
+                text-shadow: var(--neon-shadow-blue);
+            }
+
+            /* 深度美化原 lil-gui 面板，若按 F8 呼出亦显得高端融合 */
+            #datGUI {
+                border-radius: 12px !important;
+                background: var(--glass-bg) !important;
+                backdrop-filter: blur(16px) saturate(180%) !important;
+                border: 1px solid var(--glass-border) !important;
+                box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5) !important;
+                font-family: 'Inter', sans-serif !important;
+                z-index: 20 !important;
+                display: none !important; /* 默认关闭 */
             }
         </style>
     </head>
 
     <body>
+        <!-- 深邃暗黑开场加载遮罩 -->
+        <div id="loader-mask">
+            <div class="loader-spinner"></div>
+            <div class="loader-text">CONNECTING DIGITAL TWIN SYSTEM...</div>
+        </div>
+
+        <!-- 三维 WebGPU 画布 -->
         <canvas id="renderCanvas" touch-action="none"></canvas>
+
+        <!-- 左下角 HUD 折叠开关 -->
+        <div class="hud-toggle-btn" id="hudToggleBtn" title="折叠/展开主控大屏">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
+        </div>
+
+        <!-- 顶部 Header-Bar -->
+        <div class="twin-panel header-bar">
+            <div class="header-title-container">
+                <div class="header-logo"></div>
+                <div>
+                    <div class="header-title">WIND-TWIN DIGITAL TWIN SYSTEM</div>
+                    <div class="header-subtitle">海上风电大容量机组数字孪生监测系统</div>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="status-indicator">
+                    <div class="status-dot" id="apiDot"></div>
+                    <div class="status-text" id="apiText">WebGPU 驱动</div>
+                </div>
+                <div class="system-time" id="systemTime">00:00:00</div>
+            </div>
+        </div>
+
+        <!-- 左侧：“风机-环境数据”监测舱 -->
+        <div class="twin-panel telemetry-side-panel telemetry-left">
+            <div class="panel-header">
+                <!-- 列表标头指示小标志 -->
+                <svg class="panel-header-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>风机-环境数据</span>
+            </div>
+
+            <div class="telemetry-grid">
+                <!-- 1. 风速 -->
+                <div class="data-card">
+                    <!-- 定制：杯状风速计旋转图标 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="2" fill="currentColor"/>
+                        <path d="M12 10V3c2 0 3 1.5 3 3s-1 3-3 3z"/>
+                        <path d="M10.27 13c-6.06-3.5 0-7 0-7c1.73 1 3 3.5 0 7z" transform="rotate(120 12 12)"/>
+                        <path d="M10.27 13c-6.06-3.5 0-7 0-7c1.73 1 3 3.5 0 7z" transform="rotate(240 12 12)"/>
+                        <path d="M17 12a5 5 0 0 1-5 5" stroke-dasharray="2,2" opacity="0.6"/>
+                        <path d="M7 12a5 5 0 0 1 5-5" stroke-dasharray="2,2" opacity="0.6"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">风速</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-blue" id="valWindSpeed">12.5</span>
+                            <span class="data-card-unit">m/s</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 风向 -->
+                <div class="data-card">
+                    <!-- 定制：圆环指南罗盘标 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9" stroke-dasharray="3,2" opacity="0.4"/>
+                        <polygon points="12,5 15,14 12,12 9,14" fill="rgba(0, 242, 254, 0.25)" stroke="currentColor"/>
+                        <line x1="12" y1="3" x2="12" y2="5" />
+                        <path d="M11 2h2" stroke-width="1"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">风向</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value" id="valWindDir">180</span>
+                            <span class="data-card-unit">°</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 波高 -->
+                <div class="data-card">
+                    <!-- 定制：带垂直高度双向测绘箭头的双波纹 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 13c3-1.5 5 1.5 8 0s5-1.5 8 0"/>
+                        <path d="M3 17c3-1.5 5 1.5 8 0s5-1.5 8 0" opacity="0.5"/>
+                        <line x1="12" y1="6" x2="12" y2="18"/>
+                        <polyline points="9,9 12,6 15,9"/>
+                        <polyline points="9,15 12,18 15,15"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">波高</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-blue" id="valWaveHeight">1.50</span>
+                            <span class="data-card-unit">m</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 波向 -->
+                <div class="data-card">
+                    <!-- 定制：斜向浪流罗盘引导箭头 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="8" opacity="0.4"/>
+                        <path d="M6 18L17 7M17 7H11M17 7v6" stroke-width="2.5"/>
+                        <path d="M4 14c2-1 3 1 5 0" opacity="0.5"/>
+                        <path d="M15 20c2-1 3 1 5 0" opacity="0.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">波向</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value" id="valWaveDir">45</span>
+                            <span class="data-card-unit">°</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. 波周期 -->
+                <div class="data-card">
+                    <!-- 定制：正弦波动曲线融合半圆时钟 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2 14c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/>
+                        <path d="M12 12m-6 0a6 6 0 1 0 12 0a6 6 0 1 0 -12 0" stroke-dasharray="3,3" opacity="0.4"/>
+                        <line x1="12" y1="12" x2="12" y2="9"/>
+                        <line x1="12" y1="12" x2="14.5" y2="13.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">波周期</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value" id="valWavePeriod">6.8</span>
+                            <span class="data-card-unit">s</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. 系泊张力 -->
+                <div class="data-card">
+                    <!-- 定制：拉力锁链与外展张力双向大箭头 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="10" width="7" height="4" rx="2"/>
+                        <rect x="15" y="10" width="7" height="4" rx="2"/>
+                        <line x1="8" y1="12" x2="16" y2="12" stroke-width="2"/>
+                        <polyline points="6,12 9,9" stroke-width="1.5"/>
+                        <polyline points="6,12 9,15" stroke-width="1.5"/>
+                        <polyline points="18,12 15,9" stroke-width="1.5"/>
+                        <polyline points="18,12 15,15" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">系泊张力</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-green" id="valTension">124.5</span>
+                            <span class="data-card-unit">kN</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 压载舱室水位展示区 -->
+            <div class="tanks-section">
+                <div class="tanks-title">● 机载压载水舱液位监控</div>
+                <div class="tanks-flex-container">
+                    <!-- A 舱 -->
+                    <div class="tank-column">
+                        <div class="tank-track">
+                            <div class="tank-fill" id="tankAFill"></div>
+                            <!-- 🔴 极光信标圆点指示器 -->
+                            <div class="tank-indicator" id="tankAIndicator"></div>
+                        </div>
+                        <div class="tank-label">A舱</div>
+                        <div class="tank-value-text" id="tankAText">3.5m</div>
+                    </div>
+
+                    <!-- B 舱 -->
+                    <div class="tank-column">
+                        <div class="tank-track">
+                            <div class="tank-fill" id="tankBFill"></div>
+                            <!-- 🔴 极光信标圆点指示器 -->
+                            <div class="tank-indicator" id="tankBIndicator"></div>
+                        </div>
+                        <div class="tank-label">B舱</div>
+                        <div class="tank-value-text" id="tankBText">3.5m</div>
+                    </div>
+
+                    <!-- C 舱 -->
+                    <div class="tank-column">
+                        <div class="tank-track">
+                            <div class="tank-fill" id="tankCFill"></div>
+                            <!-- 🔴 极光信标圆点指示器 -->
+                            <div class="tank-indicator" id="tankCIndicator"></div>
+                        </div>
+                        <div class="tank-label">C舱</div>
+                        <div class="tank-value-text" id="tankCText">3.5m</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：“风机-姿态数据”监测舱 -->
+        <div class="twin-panel telemetry-side-panel telemetry-right">
+            <div class="panel-header">
+                <!-- 指示标线图标 -->
+                <svg class="panel-header-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span>风机-姿态数据</span>
+            </div>
+
+            <div class="telemetry-grid">
+                <!-- 1. 横摇角 -->
+                <div class="data-card">
+                    <!-- 定制：风机正面轮廓配左右弧向摇晃箭头 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="2" y1="19" x2="22" y2="19" opacity="0.4"/>
+                        <g transform="rotate(6 12 17)">
+                            <line x1="12" y1="19" x2="12" y2="7" stroke-width="3"/>
+                            <circle cx="12" cy="7" r="1.5" fill="currentColor"/>
+                            <line x1="12" y1="7" x2="6" y2="5"/>
+                            <line x1="12" y1="7" x2="18" y2="5"/>
+                        </g>
+                        <path d="M7 21a6 6 0 0 1 10 0" opacity="0.8"/>
+                        <polyline points="6,21 8,19" stroke-width="1.5"/>
+                        <polyline points="18,21 16,19" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">横摇角</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-blue" id="valRoll">0.052</span>
+                            <span class="data-card-unit">°</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 俯仰角 -->
+                <div class="data-card">
+                    <!-- 定制：风机机舱侧面视角与前后俯仰弯曲弧度箭头 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="2" y1="19" x2="22" y2="19" opacity="0.4"/>
+                        <g transform="rotate(-6 12 17)">
+                            <line x1="12" y1="19" x2="12" y2="7" stroke-width="3"/>
+                            <rect x="9" y="5" width="6" height="3" rx="1"/>
+                            <line x1="15" y1="6.5" x2="17" y2="6.5"/>
+                        </g>
+                        <path d="M19 14a8 8 0 0 0 0-6" opacity="0.8"/>
+                        <polyline points="18,9 20,7 21,9" stroke-width="1.5"/>
+                        <polyline points="18,13 20,15 21,13" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">俯仰角</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-blue" id="valPitch">0.052</span>
+                            <span class="data-card-unit">°</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 航向角 -->
+                <div class="data-card">
+                    <!-- 定制：偏航俯视偏航大齿轮与水平环形偏转方向 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9" stroke-dasharray="2,2" opacity="0.4"/>
+                        <path d="M18.5 7.5a8 8 0 0 1 0 9" stroke-width="1.5"/>
+                        <polyline points="19.5,7 18.5,8.5 17,7.5" stroke-width="1.5"/>
+                        <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                        <line x1="12" y1="12" x2="12" y2="5" stroke-width="2.5"/>
+                        <line x1="12" y1="12" x2="18" y2="15.5" stroke-width="2.5"/>
+                        <line x1="12" y1="12" x2="6" y2="15.5" stroke-width="2.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">航向角</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value" id="valYaw">0</span>
+                            <span class="data-card-unit">°</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 横荡 -->
+                <div class="data-card">
+                    <!-- 定制：浮台座与水平左右直双向移动箭头 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 13h6l1 3H8l1-3z" fill="rgba(0, 242, 254, 0.1)" stroke="currentColor"/>
+                        <line x1="2" y1="7" x2="22" y2="7" stroke-width="2"/>
+                        <polyline points="5,4 2,7 5,10" stroke-width="1.5"/>
+                        <polyline points="19,4 22,7 19,10" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">横荡</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value" id="valSurge">0.00</span>
+                            <span class="data-card-unit">m</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. 纵荡 -->
+                <div class="data-card">
+                    <!-- 定制：浮台座与倾斜纵深移动双向指向 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 14h6l1 3H8l1-3z" fill="rgba(0, 242, 254, 0.1)" stroke="currentColor"/>
+                        <line x1="4" y1="16" x2="20" y2="4" stroke-width="2"/>
+                        <polyline points="4,12 4,16 8,16" stroke-width="1.5"/>
+                        <polyline points="16,4 20,4 20,8" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">纵荡</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value" id="valSway">0.00</span>
+                            <span class="data-card-unit">m</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. 升沉 -->
+                <div class="data-card">
+                    <!-- 定制：浮式平台与穿过机舱上下的垂直双向轴 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 12h8l1 3H7l1-3z" fill="rgba(0, 242, 254, 0.1)" stroke="currentColor"/>
+                        <line x1="12" y1="2" x2="12" y2="22" stroke-width="2"/>
+                        <polyline points="9,5 12,2 15,5" stroke-width="1.5"/>
+                        <polyline points="9,19 12,22 15,19" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">升沉</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-green" id="valHeave">0.00</span>
+                            <span class="data-card-unit">m</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 7. 高度 -->
+                <div class="data-card" style="grid-column: span 2;">
+                    <!-- 定制：垂直刻度标尺与指向顶端的高程计 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="7" y1="3" x2="7" y2="21" stroke-width="2"/>
+                        <line x1="7" y1="6" x2="12" y2="6"/>
+                        <line x1="7" y1="12" x2="12" y2="12"/>
+                        <line x1="7" y1="18" x2="12" y2="18"/>
+                        <line x1="17" y1="21" x2="17" y2="3"/>
+                        <polyline points="14,6 17,3 20,6" stroke-width="1.5"/>
+                    </svg>
+                    <div class="data-card-content">
+                        <span class="data-card-label">高度</span>
+                        <div class="data-card-value-box">
+                            <span class="data-card-value highlight-blue" id="valHeight">30.00</span>
+                            <span class="data-card-unit">m</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 8. 经度 -->
+                <div class="gps-card">
+                    <!-- 定制：加粗南北走向纵向经线指示的地球仪 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9" opacity="0.4"/>
+                        <line x1="3.2" y1="12" x2="20.8" y2="12" opacity="0.2"/>
+                        <path d="M4.5 8h15" opacity="0.2"/>
+                        <path d="M4.5 16h15" opacity="0.2"/>
+                        <path d="M12 3a9 9 0 0 0 0 18a9 9 0 0 0 0-18" stroke-width="2.5" stroke-linecap="round"/>
+                        <path d="M12 3c-3 3-3 15 0 18" stroke-dasharray="2,2" opacity="0.5"/>
+                        <path d="M12 3c3 3 3 15 0 18" stroke-dasharray="2,2" opacity="0.5"/>
+                    </svg>
+                    <div class="gps-content">
+                        <span class="data-card-label">经度</span>
+                        <div class="gps-value" id="valLng">121.849204820104 °</div>
+                    </div>
+                </div>
+
+                <!-- 9. 纬度 -->
+                <div class="gps-card">
+                    <!-- 定制：加粗东西走向赤道纬线指示的地球仪 -->
+                    <svg class="data-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9" opacity="0.4"/>
+                        <path d="M12 3c-3 3-3 15 0 18" opacity="0.2"/>
+                        <path d="M12 3c3 3 3 15 0 18" opacity="0.2"/>
+                        <line x1="12" y1="3" x2="12" y2="21" opacity="0.2"/>
+                        <line x1="3" y1="12" x2="21" y2="12" stroke-width="2.5" stroke-linecap="round"/>
+                        <path d="M4.5 8c3 1 12 1 15 0" stroke-dasharray="2,2" opacity="0.5"/>
+                        <path d="M4.5 16c3-1 12-1 15 0" stroke-dasharray="2,2" opacity="0.5"/>
+                    </svg>
+                    <div class="gps-content">
+                        <span class="data-card-label">纬度</span>
+                        <div class="gps-value" id="valLat">31.129482910482 °</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部仅保留相机控制面板 -->
+        <div class="twin-panel camera-dock">
+            <span class="dock-label">孪生视角导航:</span>
+            <button class="neon-btn active" id="camWide" onclick="switchCamera(180, 78, 28, 0, 6, -8, 'camWide')">风机广角</button>
+            <button class="neon-btn" id="camClose" onclick="switchCamera(90, 70, 22, 0, 6, -8, 'camClose')">机舱近景</button>
+            <button class="neon-btn" id="camWave" onclick="switchCamera(140, 85, 30, 0, 1.2, -12, 'camWave')">波浪物理</button>
+        </div>
+
+        <!-- 5. 数据联动及孪生仿真逻辑 -->
+        <script>
+            // A. 数字时钟走字
+            function updateClock() {
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                document.getElementById('systemTime').textContent = 
+                    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+            }
+            setInterval(updateClock, 1000);
+            updateClock();
+
+            // B. 高保真气象/海况与姿态物理仿真
+            const GPS_BASE_LNG = 121.849204820104;
+            const GPS_BASE_LAT = 31.129482910482;
+            const BASE_HEIGHT = 30.0; // 基础离水高度
+
+            let startTime = Date.now();
+
+            function runBallastAndAttitudeSimulation() {
+                const elapsedSeconds = (Date.now() - startTime) / 1000;
+                
+                // 1. 模拟环境参数 (温和海况下微幅起伏)
+                let windSpeed = 12.5 + Math.sin(elapsedSeconds * 0.1) * 0.4 + (Math.random() - 0.5) * 0.1;
+                let windDir = 180 + Math.sin(elapsedSeconds * 0.05) * 2;
+                let waveHeight = 1.50 + Math.sin(elapsedSeconds * 0.15) * 0.1 + (Math.random() - 0.5) * 0.04;
+                let waveDir = 45 + Math.sin(elapsedSeconds * 0.08) * 1.5;
+                let wavePeriod = 6.8 + Math.sin(elapsedSeconds * 0.03) * 0.1;
+                
+                // 系泊张力：在 120 kN 至 130 kN 之间根据海浪同步波动
+                let tension = 124.5 + Math.sin(elapsedSeconds * 0.3) * 3.2 + (Math.random() - 0.5) * 0.5;
+
+                // 2. 模拟三轴姿态与位移 (物理同步)
+                // 横摇和俯仰极度逼真地浮动在 0.052 ° 附近
+                let roll = 0.052 + Math.sin(elapsedSeconds * 0.25) * 0.015 + Math.cos(elapsedSeconds * 0.1) * 0.005;
+                let pitch = 0.052 + Math.cos(elapsedSeconds * 0.3) * 0.012 + Math.sin(elapsedSeconds * 0.15) * 0.006;
+                let yaw = Math.sin(elapsedSeconds * 0.02) * 1.2;
+
+                // 位移量 (Surge, Sway, Heave)
+                let surge = Math.sin(elapsedSeconds * 0.2) * 0.08 + Math.cos(elapsedSeconds * 0.05) * 0.03;
+                let sway = Math.cos(elapsedSeconds * 0.22) * 0.06 + Math.sin(elapsedSeconds * 0.06) * 0.02;
+                
+                // Heave (升沉) 与海浪波高和频率高度绑定，产生流畅规律的波动
+                let heave = Math.sin(elapsedSeconds * 0.3) * (waveHeight * 0.18) + (Math.random() - 0.5) * 0.01;
+                let currentHeight = BASE_HEIGHT + heave;
+
+                // 3. 模拟经纬度 GPS 末尾的高保真抖动 (由 Surge / Sway 位移引起)
+                let currentLng = GPS_BASE_LNG + (surge * 0.00000001);
+                let currentLat = GPS_BASE_LAT + (sway * 0.00000001);
+
+                // 4. 三舱压载水柜差分液位模拟
+                // 随着横摇(roll)和俯仰(pitch)的晃动，压载水会产生微小的互补式重力自流
+                let baseTankAFill = 45; // 基础 45%
+                let baseTankBFill = 55;
+                let baseTankCFill = 50;
+
+                // 摇晃导致的液位升降（%）
+                let deltaA = Math.sin(elapsedSeconds * 0.25) * 6;
+                let deltaB = Math.cos(elapsedSeconds * 0.3) * 5;
+                let deltaC = -(deltaA + deltaB) * 0.5; // 水量守恒
+
+                let percentA = baseTankAFill + deltaA;
+                let percentB = baseTankBFill + deltaB;
+                let percentC = baseTankCFill + deltaC;
+
+                // 计算对应的水柱高度 (m)
+                let metersA = (8.0 * (percentA / 100)).toFixed(2);
+                let metersB = (8.0 * (percentB / 100)).toFixed(2);
+                let metersC = (8.0 * (percentC / 100)).toFixed(2);
+
+                // 5. 将计算数据动态更新至 DOM 节点中
+                document.getElementById('valWindSpeed').textContent = windSpeed.toFixed(1);
+                document.getElementById('valWindDir').textContent = Math.round(windDir);
+                document.getElementById('valWaveHeight').textContent = waveHeight.toFixed(2);
+                document.getElementById('valWaveDir').textContent = Math.round(waveDir);
+                document.getElementById('valWavePeriod').textContent = wavePeriod.toFixed(1);
+                document.getElementById('valTension').textContent = tension.toFixed(1);
+
+                document.getElementById('valRoll').textContent = roll.toFixed(3);
+                document.getElementById('valPitch').textContent = pitch.toFixed(3);
+                document.getElementById('valYaw').textContent = yaw.toFixed(1);
+                document.getElementById('valSurge').textContent = surge.toFixed(2);
+                document.getElementById('valSway').textContent = sway.toFixed(2);
+                document.getElementById('valHeave').textContent = heave.toFixed(2);
+                document.getElementById('valHeight').textContent = currentHeight.toFixed(2);
+
+                document.getElementById('valLng').textContent = currentLng.toFixed(12) + " °";
+                document.getElementById('valLat').textContent = currentLat.toFixed(12) + " °";
+
+                // 更新压载舱液面图及红色水平标线
+                document.getElementById('tankAFill').style.height = `${percentA}%`;
+                document.getElementById('tankAIndicator').style.bottom = `${percentA}%`;
+                document.getElementById('tankAText').textContent = `${metersA}m`;
+
+                document.getElementById('tankBFill').style.height = `${percentB}%`;
+                document.getElementById('tankBIndicator').style.bottom = `${percentB}%`;
+                document.getElementById('tankBText').textContent = `${metersB}m`;
+
+                document.getElementById('tankCFill').style.height = `${percentC}%`;
+                document.getElementById('tankCIndicator').style.bottom = `${percentC}%`;
+                document.getElementById('tankCText').textContent = `${metersC}m`;
+            }
+            // 使用更高频率更新，保证水箱与标线的缓动呈现出极致的平稳顺滑感
+            setInterval(runBallastAndAttitudeSimulation, 80);
+
+            // C. HUD 大屏折叠开关
+            const hudToggleBtn = document.getElementById('hudToggleBtn');
+            hudToggleBtn.addEventListener('click', () => {
+                document.body.classList.toggle('hud-hidden');
+            });
+
+            // D. 航拍机位切换缓动控制
+            function switchCamera(alphaDeg, betaDeg, radius, targetX, targetY, targetZ, activeBtnId) {
+                // 更新按钮高亮样式
+                const btns = ['camWide', 'camClose', 'camWave'];
+                btns.forEach(id => {
+                    const btn = document.getElementById(id);
+                    if (btn) btn.classList.remove('active');
+                });
+                const activeBtn = document.getElementById(activeBtnId);
+                if (activeBtn) activeBtn.classList.add('active');
+
+                if (window.scene && window.scene.activeCamera) {
+                    const camera = window.scene.activeCamera;
+                    const toRad = Math.PI / 180;
+                    
+                    animateValue(camera.alpha, alphaDeg * toRad, 1400, (v) => camera.alpha = v);
+                    animateValue(camera.beta, betaDeg * toRad, 1400, (v) => camera.beta = v);
+                    animateValue(camera.radius, radius, 1400, (v) => camera.radius = v);
+                }
+            }
+
+            function animateValue(start, end, duration, onUpdate) {
+                const startTime = performance.now();
+                function tick(now) {
+                    const elapsed = now - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const ease = progress < 0.5 
+                        ? 4 * progress * progress * progress 
+                        : 1 - Math.pow(-2 * progress + 2, 3) / 2; // easeInOutCubic
+                    
+                    onUpdate(start + (end - start) * ease);
+                    if (progress < 1) {
+                        requestAnimationFrame(tick);
+                    }
+                }
+                requestAnimationFrame(tick);
+            }
+
+            // E. API 状态灯高亮检测
+            function updateRenderEngineStatus() {
+                if (window.engine) {
+                    const isWebGPU = window.engine.name && window.engine.name.toLowerCase().indexOf('webgpu') !== -1;
+                    const apiDot = document.getElementById('apiDot');
+                    const apiText = document.getElementById('apiText');
+                    
+                    if (isWebGPU) {
+                        apiDot.style.backgroundColor = '#00f5a0';
+                        apiDot.style.boxShadow = '0 0 10px #00f5a0';
+                        apiText.textContent = 'WebGPU 运行';
+                    } else {
+                        apiDot.style.backgroundColor = '#ffb800';
+                        apiDot.style.boxShadow = '0 0 10px #ffb800';
+                        apiText.textContent = 'WebGL 降级驱动';
+                    }
+                }
+            }
+
+            // 注册全局回调：只有当三维模型和着色器完全加载就绪后，淡出删除遮罩，并更新 API 状态
+            window.onTwinSystemReady = function() {
+                const loader = document.getElementById('loader-mask');
+                if (loader) {
+                    loader.style.opacity = 0;
+                    setTimeout(() => loader.remove(), 600);
+                }
+                updateRenderEngineStatus();
+            };
+        </script>
     </body>
 </html>

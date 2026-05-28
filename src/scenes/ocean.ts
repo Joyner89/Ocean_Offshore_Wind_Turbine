@@ -96,6 +96,10 @@ export class Ocean implements CreateSceneClass {
 
         scene.useRightHandedSystem = true;
 
+        (window as any).engine = engine;
+        (window as any).scene = scene;
+        (window as any).ocean = this;
+
         this._engine = engine;
         this._scene = scene;
 

@@ -113,4 +113,7 @@ export const babylonInit = async (): Promise<void> => {
 
 babylonInit().then(() => {
     // scene started rendering, everything is initialized
+    if ((window as any).onTwinSystemReady) {
+        (window as any).onTwinSystemReady();
+    }
 });
