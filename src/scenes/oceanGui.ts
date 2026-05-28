@@ -31,7 +31,7 @@ export class OceanGUI {
 
     constructor(hasProceduralSky: boolean, scene: BABYLON.Scene, engine: BABYLON.Engine, paramRead: (name: string) => any, paramChanged: (name: string, value: any) => void) {
         this._scene = scene;
-        this._visible = true;
+        this._visible = false;
         this._onKeyObserver = null;
         this._paramRead = paramRead;
         this._paramChanged = paramChanged;
@@ -43,6 +43,7 @@ export class OceanGUI {
     
         this._gui = new GUI();
         this._gui.domElement.style.marginTop = "60px";
+        this._gui.domElement.style.display = "none";
         this._gui.domElement.id = "datGUI";
 
         this._setupKeyboard();
